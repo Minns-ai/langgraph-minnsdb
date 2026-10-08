@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import uuid
+import warnings
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -54,6 +55,14 @@ def _turns(messages: Iterable[BaseMessage | Mapping[str, Any] | str]) -> list[di
         if role and content.strip():
             turns.append({"role": role, "content": content})
     return turns
+
+
+class NoFactsExtracted(UserWarning):
+    """``remember`` ran but MinnsDB extracted nothing, often because the server has no LLM."""
+
+
+def _facts_extracted(report: Mapping[str, Any]) -> int:
+    return int((report.get("compaction") or {}).get("facts_extracted") or 0)
 
 
 class MinnsDBMemory:
@@ -110,7 +119,7 @@ class MinnsDBMemory:
         session: dict[str, Any] = {"session_id": session_id or uuid.uuid4().hex, "messages": turns}
         if topic:
             session["topic"] = topic
-        return self.client.request(
+        report = self.client.request(
             "POST",
             "/api/conversations/ingest",
             params={"wait": "true"} if wait else None,
@@ -121,6 +130,16 @@ class MinnsDBMemory:
                 "include_assistant_facts": self.include_assistant_facts,
             },
         )
+        extractable = any(t["role"] == "user" for t in turns) or self.include_assistant_facts
+        if wait and extractable and _facts_extracted(report) == 0:
+            # MinnsDB reports success with 0 facts when its LLM is missing or failing.
+            warnings.warn(
+                f"MinnsDB extracted no facts from {len(turns)} message(s). If you expected some, "
+                "check that the MinnsDB server has an LLM configured (LLM_API_KEY) and look at its logs.",
+                NoFactsExtracted,
+                stacklevel=2,
+            )
+        return report
 
     def job(self, job_id: str) -> dict[str, Any]:
         """A background ingestion, e.g. ``{"state": "done", "response": {...}}``.
@@ -204,8 +223,12 @@ class MinnsDBMemory:
         def save_memory(fact: str) -> str:
             """Save something the user told you that is worth remembering later, such as where they live,
             where they work, their preferences or a change to any of these. Write it as the user said it."""
-            report = memory.remember([{"role": "user", "content": fact}])
-            facts = (report.get("compaction") or {}).get("facts_extracted", 0)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", NoFactsExtracted)
+                report = memory.remember([{"role": "user", "content": fact}])
+            facts = _facts_extracted(report)
+            if not facts:
+                return "Nothing saved: no facts were extracted from that."
             return f"Saved. {facts} fact(s) extracted."
 
         @tool

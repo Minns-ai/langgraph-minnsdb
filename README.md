@@ -77,7 +77,7 @@ memory.facts_about("Priya", history=True)       # every version, with valid_from
 memory.recall("Where does Priya work?")["answer"]
 ```
 
-`remember` also takes LangChain messages, so you can pass `state["messages"]` after each turn. System prompts and tool messages are skipped, and the agent's own replies are ignored unless you set `include_assistant_facts=True`. It waits for extraction to finish; pass `wait=False` to get a background job instead and check it with `memory.job(job_id)`.
+`remember` also takes LangChain messages, so you can pass `state["messages"]` after each turn. System prompts and tool messages are skipped, and the agent's own replies are ignored unless you set `include_assistant_facts=True`. It waits for extraction to finish; pass `wait=False` to get a background job instead and check it with `memory.job(job_id)`. If extraction finds no facts in what the user said, `remember` raises a `NoFactsExtracted` warning. The usual cause is a MinnsDB server with no LLM key.
 
 Give an agent the tools, for example with LangChain's `create_agent`:
 

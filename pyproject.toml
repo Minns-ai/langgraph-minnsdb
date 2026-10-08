@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langgraph-minnsdb"
-version = "0.1.0"
+version = "0.1.1"
 description = "LangGraph long-term memory on MinnsDB: a store that keeps every version, and graph memory that knows which facts are current."
 readme = "README.md"
 license = "MIT"

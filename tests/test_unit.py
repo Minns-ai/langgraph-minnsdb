@@ -1,6 +1,10 @@
+import warnings
+
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.store.base import MatchCondition
 
+from langgraph_minnsdb import MinnsDBMemory, NoFactsExtracted
 from langgraph_minnsdb.memory import _turns
 from langgraph_minnsdb.store import _compare, _matches, _row_id_of, _score
 
@@ -55,3 +59,32 @@ def test_turns_keep_what_people_said():
         {"role": "assistant", "content": "Noted"},
         {"role": "user", "content": "plain text counts as the user"},
     ]
+
+
+class _FakeClient:
+    def __init__(self, facts):
+        self.facts = facts
+
+    def request(self, method, path, **kwargs):
+        return {"case_id": "u", "compaction": {"facts_extracted": self.facts, "llm_success": True}}
+
+
+def test_remember_warns_when_no_facts_extracted():
+    memory = MinnsDBMemory("u", client=_FakeClient(0))
+    with pytest.warns(NoFactsExtracted, match="LLM_API_KEY"):
+        memory.remember("I live in London")
+
+
+def test_remember_quiet_when_facts_extracted_or_nothing_to_extract():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        MinnsDBMemory("u", client=_FakeClient(2)).remember("I live in London")
+        MinnsDBMemory("u", client=_FakeClient(0)).remember([AIMessage("Noted")])
+        MinnsDBMemory("u", client=_FakeClient(0)).remember("I live in London", wait=False)
+
+
+def test_save_memory_tool_says_when_nothing_saved():
+    save = {t.name: t for t in MinnsDBMemory("u", client=_FakeClient(0)).as_tools()}["save_memory"]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert save.invoke({"fact": "hello"}).startswith("Nothing saved")
